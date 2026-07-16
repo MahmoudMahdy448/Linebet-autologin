@@ -1,15 +1,27 @@
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import path from 'path';
 import * as XLSX from 'xlsx';
 
 const numbersJsonPath = path.resolve(process.cwd(), 'extracted_numbers.json');
+const screenshotsDir = path.resolve(process.cwd(), 'screenshots');
 
-if (!existsSync(numbersJsonPath)) {
-  console.log('No extracted_numbers.json found. Run "npm run login" first.');
+let numbers = [];
+
+if (existsSync(numbersJsonPath)) {
+  numbers = JSON.parse(readFileSync(numbersJsonPath, 'utf8'));
+} else if (existsSync(screenshotsDir)) {
+  const files = readdirSync(screenshotsDir);
+  for (const file of files) {
+    const match = file.match(/(01\d{9})/);
+    if (match) {
+      numbers.push(match[1]);
+    }
+  }
+} else {
+  console.log('No data found. Run "npm run login" first.');
   process.exit(1);
 }
 
-const numbers = JSON.parse(readFileSync(numbersJsonPath, 'utf8'));
 const unique = [...new Set(numbers)];
 
 if (!unique.length) {

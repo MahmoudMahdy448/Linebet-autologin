@@ -161,19 +161,28 @@ async function runAccountFlow(page, account, index, total) {
 
   console.log(`[${index + 1}/${total}] Signing in with ${username}`);
 
-  await page.goto(loginUrl, { waitUntil: 'networkidle' });
+  await page.goto(loginUrl, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(5000);
+
+  const loginTab = page.locator('text=Log in').first();
+  if (await loginTab.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await loginTab.click();
+    await page.waitForTimeout(2000);
+  }
 
   let loginInput = null;
   let passwordInput = null;
 
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 10; attempt++) {
     loginInput = await waitForLoginForm(page);
     passwordInput = await waitForPasswordInput(page);
     if (loginInput && passwordInput) break;
-    await page.waitForTimeout(2000);
+    console.log(`  Attempt ${attempt + 1}: form not ready, waiting...`);
+    await page.waitForTimeout(3000);
   }
 
   if (!loginInput || !passwordInput) {
+    await page.screenshot({ path: `screenshots/debug-login-${index + 1}.jpg`, type: 'jpeg', quality: 80 });
     throw new Error('Could not find login or password input fields.');
   }
 

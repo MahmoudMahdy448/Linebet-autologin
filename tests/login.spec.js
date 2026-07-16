@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 import { test, expect } from '@playwright/test';
 import * as XLSX from 'xlsx';
@@ -7,6 +7,7 @@ const loginUrl = 'https://linebet.com/en/user/login';
 const rechargeUrl = 'https://linebet.com/en/office/recharge';
 const accountsFilePath = path.resolve(process.cwd(), 'accounts.csv');
 const failuresLogPath = path.resolve(process.cwd(), 'logs', 'failed-accounts.log');
+const numbersJsonPath = path.resolve(process.cwd(), 'extracted_numbers.json');
 
 function parseCsvLine(line) {
   const values = [];
@@ -287,6 +288,7 @@ async function runAccountFlow(page, account, index, total) {
 
   if (extractedNumber) {
     uniqueNumbers.add(extractedNumber);
+    writeFileSync(numbersJsonPath, JSON.stringify([...uniqueNumbers], null, 2), 'utf8');
   }
 
   const filename = extractedNumber

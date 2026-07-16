@@ -351,7 +351,7 @@ test('sign in to Linebet', async ({ browser }) => {
       logFailure(account, error);
     } finally {
       if (index < accounts.length - 1 && !page.isClosed()) {
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(5000);
       }
 
       await page.close().catch(() => {});

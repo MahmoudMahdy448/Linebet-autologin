@@ -204,7 +204,10 @@ async function runAccountFlow(page, account, index, total) {
         { state: 'visible', timeout: 15000 }
       );
       if (handle) {
-        loginErrorFromToast = (await handle.textContent().catch(() => '')).trim();
+        loginErrorFromToast = (await handle.textContent().catch(() => '')).trim()
+          .replace(/^Error/i, '')
+          .replace(/Ok$/i, '')
+          .trim();
       }
     } catch {
       // toast did not appear - login may have succeeded

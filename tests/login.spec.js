@@ -300,7 +300,11 @@ async function runAccountFlow(page, account, index, total) {
 
   if (extractedNumber) {
     uniqueNumbers.add(extractedNumber);
-    writeFileSync(numbersJsonPath, JSON.stringify([...uniqueNumbers], null, 2), 'utf8');
+    const existing = existsSync(numbersJsonPath)
+      ? JSON.parse(readFileSync(numbersJsonPath, 'utf8'))
+      : [];
+    const merged = [...new Set([...existing, ...uniqueNumbers])];
+    writeFileSync(numbersJsonPath, JSON.stringify(merged, null, 2), 'utf8');
   }
 
   const filename = extractedNumber

@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
 import path from 'path';
 import { test, expect } from '@playwright/test';
+import * as XLSX from 'xlsx';
 
 const loginUrl = 'https://linebet.com/en/user/login';
 const rechargeUrl = 'https://linebet.com/en/office/recharge';
@@ -98,6 +99,7 @@ function logFailure(account, error) {
 }
 
 const phoneCounts = new Map();
+const uniqueNumbers = new Set();
 
 function uniquePhoneFilename(phone) {
   const count = phoneCounts.get(phone) || 0;
@@ -281,8 +283,14 @@ async function runAccountFlow(page, account, index, total) {
   const copyBtn = paymentFrame.locator('span.copy_content_btn.modal-message-btn[title="Copy"]');
   const modalText = await copyBtn.locator('..').textContent().catch(() => '');
   const phoneMatch = modalText.match(/01\d{9}/);
-  const filename = phoneMatch
-    ? uniquePhoneFilename(phoneMatch[0])
+  const extractedNumber = phoneMatch ? phoneMatch[0] : null;
+
+  if (extractedNumber) {
+    uniqueNumbers.add(extractedNumber);
+  }
+
+  const filename = extractedNumber
+    ? uniquePhoneFilename(extractedNumber)
     : `screenshots/vodafone-deposit-${new Date().toISOString().replace(/[:.]/g, '-')}.jpg`;
 
   mkdirSync(path.dirname(filename), { recursive: true });
@@ -315,6 +323,8 @@ test('sign in to Linebet', async ({ browser }) => {
   const startIndex = parseInt(process.env.START_INDEX, 10) || 1;
   const startOffset = startIndex - 1;
 
+  uniqueNumbers.clear();
+
   if (startOffset > 0 && startOffset < accounts.length) {
     console.log(`Starting execution from account #${startIndex} (${accounts[startOffset].username})`);
   }
@@ -342,5 +352,14 @@ test('sign in to Linebet', async ({ browser }) => {
       await page.close().catch(() => {});
       await context.close().catch(() => {});
     }
+  }
+
+  if (uniqueNumbers.size > 0) {
+    const wb = XLSX.utils.book_new();
+    const data = Array.from(uniqueNumbers).map((num) => ({ Phone: num }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, 'Phone Numbers');
+    XLSX.writeFile(wb, 'extracted_numbers.xlsx');
+    console.log(`Extracted ${uniqueNumbers.size} unique phone number(s) to extracted_numbers.xlsx`);
   }
 });

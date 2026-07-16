@@ -31,6 +31,13 @@ const wb = XLSX.utils.book_new();
 const data = unique.map((num) => ({ Phone: num }));
 const ws = XLSX.utils.json_to_sheet(data);
 XLSX.utils.book_append_sheet(wb, ws, 'Phone Numbers');
-XLSX.writeFile(wb, 'extracted_numbers.xlsx');
-
-console.log(`Extracted ${unique.length} unique phone number(s) to extracted_numbers.xlsx`);
+try {
+  XLSX.writeFile(wb, 'extracted_numbers.xlsx');
+  console.log(`Extracted ${unique.length} unique phone number(s) to extracted_numbers.xlsx`);
+} catch (e) {
+  if (e.code === 'EBUSY') {
+    console.log('File is open in another program. Close it and try again.');
+  } else {
+    throw e;
+  }
+}

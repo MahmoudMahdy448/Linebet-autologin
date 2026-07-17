@@ -291,7 +291,7 @@ async function runAccountFlow(page, account, index, total) {
   }
 
   const scope = paymentFrame || page;
-  const vodafoneOption = scope.locator(vodafoneSelector);
+  const vodafoneOption = scope.locator(vodafoneSelector).first();
   const paymentModal = scope.locator('#payment_modal_container');
 
   await vodafoneOption.click();

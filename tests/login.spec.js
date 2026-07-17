@@ -244,7 +244,7 @@ async function runAccountFlow(page, account, index, total) {
 
   await page.waitForTimeout(5000);
 
-  const vodafoneSelector = '#vodafone_cash_linebet_3';
+  const vodafoneSelector = '[id^="vodafone_cash_linebet_"]';
   let paymentFrame = null;
   let vodafoneFound = false;
   const searchDeadline = Date.now() + 30000;
@@ -273,6 +273,20 @@ async function runAccountFlow(page, account, index, total) {
   }
 
   if (!vodafoneFound) {
+    const allIds = await page.evaluate(() => {
+      return [...document.querySelectorAll('[id]')].map(el => el.id).filter(id => id.toLowerCase().includes('voda') || id.toLowerCase().includes('payment') || id.toLowerCase().includes('modal'));
+    });
+    console.log('  Found IDs on page:', allIds);
+    for (const frame of page.frames()) {
+      try {
+        const frameIds = await frame.evaluate(() => {
+          return [...document.querySelectorAll('[id]')].map(el => el.id).filter(id => id.toLowerCase().includes('voda') || id.toLowerCase().includes('payment') || id.toLowerCase().includes('modal'));
+        });
+        if (frameIds.length) console.log('  Found IDs in frame:', frameIds);
+      } catch {}
+    }
+    mkdirSync('screenshots', { recursive: true });
+    await page.screenshot({ path: `screenshots/debug-deposit-${index + 1}.jpg`, type: 'jpeg', quality: 80, fullPage: true });
     throw new Error('Vodafone option (#vodafone_cash_linebet_3) not found within 30 seconds.');
   }
 

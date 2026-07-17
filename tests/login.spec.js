@@ -244,43 +244,53 @@ async function runAccountFlow(page, account, index, total) {
 
   await page.waitForTimeout(5000);
 
+  const vodafoneSelector = '#vodafone_cash_linebet_3';
   let paymentFrame = null;
+  let vodafoneFound = false;
   const searchDeadline = Date.now() + 30000;
 
   while (Date.now() < searchDeadline) {
+    const mainCount = await page.locator(vodafoneSelector).count();
+    if (mainCount > 0) {
+      vodafoneFound = true;
+      break;
+    }
+
     for (const frame of page.frames()) {
       try {
-        const count = await frame.locator('#vodafone_cash_linebet_3').count();
+        const count = await frame.locator(vodafoneSelector).count();
         if (count > 0) {
           paymentFrame = frame;
+          vodafoneFound = true;
           break;
         }
       } catch {
         // frame may be detached or cross-origin - skip
       }
     }
-    if (paymentFrame) break;
+    if (vodafoneFound) break;
     await page.waitForTimeout(1000);
   }
 
-  if (!paymentFrame) {
-    throw new Error('Payment frame with Vodafone option (#vodafone_cash_linebet_3) not found within 30 seconds.');
+  if (!vodafoneFound) {
+    throw new Error('Vodafone option (#vodafone_cash_linebet_3) not found within 30 seconds.');
   }
 
-  const vodafoneOption = paymentFrame.locator('#vodafone_cash_linebet_3');
-  const paymentModal = paymentFrame.locator('#payment_modal_container');
+  const scope = paymentFrame || page;
+  const vodafoneOption = scope.locator(vodafoneSelector);
+  const paymentModal = scope.locator('#payment_modal_container');
 
   await vodafoneOption.click();
 
   await expect(paymentModal).toBeVisible({ timeout: 15000 });
 
-  const closePopup = paymentFrame.locator('a.message-close');
+  const closePopup = scope.locator('a.message-close');
   if (await closePopup.isVisible({ timeout: 3000 }).catch(() => false)) {
     await closePopup.click();
     await page.waitForTimeout(500);
   }
 
-  await expect(paymentFrame.locator('#amount')).toBeVisible({ timeout: 15000 });
+  await expect(scope.locator('#amount')).toBeVisible({ timeout: 15000 });
   await page.waitForTimeout(1000);
 
   const modalBox = await paymentModal.boundingBox();
@@ -293,7 +303,7 @@ async function runAccountFlow(page, account, index, total) {
     throw new Error('Could not determine the Vodafone payment window position.');
   }
 
-  const copyBtn = paymentFrame.locator('span.copy_content_btn.modal-message-btn[title="Copy"]');
+  const copyBtn = scope.locator('span.copy_content_btn.modal-message-btn[title="Copy"]');
   const modalText = await copyBtn.locator('..').textContent().catch(() => '');
   const phoneMatch = modalText.match(/01\d{9}/);
   const extractedNumber = phoneMatch ? phoneMatch[0] : null;

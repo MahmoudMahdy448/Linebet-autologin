@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "login": "playwright test",
-    "excel": "node generate-excel.js"
+    "excel": "node generate-excel.js",
+    "loop": "node run-loop.js",
+    "notify": "node scripts/notify.js",
+    "scheduled": "node scripts/scheduled-run.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

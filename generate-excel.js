@@ -2,20 +2,32 @@ import { existsSync, readFileSync, readdirSync } from 'fs';
 import path from 'path';
 import * as XLSX from 'xlsx';
 
+const PHONE_PATTERN = /^01\d{9}$/;
+const FILENAME_PATTERN = /(01\d{9})/;
+
+function isValidPhone(value) {
+  return typeof value === 'string' && PHONE_PATTERN.test(value);
+}
+
 const numbersJsonPath = path.resolve(process.cwd(), 'extracted_numbers.json');
 const screenshotsDir = path.resolve(process.cwd(), 'screenshots');
 
 const numbers = new Set();
 
 if (existsSync(numbersJsonPath)) {
-  JSON.parse(readFileSync(numbersJsonPath, 'utf8')).forEach((n) => numbers.add(n));
+  const parsed = JSON.parse(readFileSync(numbersJsonPath, 'utf8'));
+  for (const entry of parsed) {
+    if (isValidPhone(entry)) {
+      numbers.add(entry);
+    }
+  }
 }
 
-if (existsSync(screenshotsDir)) {
+if (numbers.size === 0 && existsSync(screenshotsDir)) {
   const files = readdirSync(screenshotsDir);
   for (const file of files) {
-    const match = file.match(/(01\d{9})/);
-    if (match) {
+    const match = file.match(FILENAME_PATTERN);
+    if (match && isValidPhone(match[1])) {
       numbers.add(match[1]);
     }
   }

@@ -3,6 +3,7 @@ import path from 'path';
 import { test, expect } from '@playwright/test';
 import * as XLSX from 'xlsx';
 
+const PHONE_PATTERN = /^01\d{9}$/;
 const loginUrl = 'https://linebet.com/en/user/login';
 const rechargeUrl = 'https://linebet.com/en/office/recharge';
 const accountsFilePath = path.resolve(process.cwd(), 'accounts.csv');
@@ -318,9 +319,19 @@ async function runAccountFlow(page, account, index, total) {
   }
 
   const copyBtn = scope.locator('span.copy_content_btn.modal-message-btn[title="Copy"]');
-  const modalText = await copyBtn.locator('..').textContent().catch(() => '');
-  const phoneMatch = modalText.match(/01\d{9}/);
-  const extractedNumber = phoneMatch ? phoneMatch[0] : null;
+  const btnText = await copyBtn.textContent().catch(() => '');
+  const btnMatch = btnText.match(/01\d{9}/);
+  let extractedNumber = btnMatch ? btnMatch[0] : null;
+
+  if (!extractedNumber) {
+    const modalText = await copyBtn.locator('..').textContent().catch(() => '');
+    const phoneMatch = modalText.match(/01\d{9}/);
+    extractedNumber = phoneMatch ? phoneMatch[0] : null;
+  }
+
+  if (extractedNumber && !PHONE_PATTERN.test(extractedNumber)) {
+    extractedNumber = null;
+  }
 
   if (extractedNumber) {
     uniqueNumbers.add(extractedNumber);

@@ -8,3 +8,15 @@ logs/
 extracted_numbers.xlsx
 extracted_numbers.json
 .browser-cache/
+
+# runtime data / local state (never commit)
+screenshots_test/
+.browser-cache-*/
+seen-numbers*.json
+loop-status*.json
+state*.json
+run-summary*.json
+npm-login-output.txt
+linebet_extracted_numbers*.xlsx
+*.pid
+

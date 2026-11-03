@@ -8,6 +8,7 @@
     "excel": "node generate-excel.js",
     "loop": "node run-loop.js",
     "notify": "node scripts/notify.js",
+    "split": "node run-split.mjs",
     "scheduled": "node scripts/scheduled-run.mjs"
   },
   "devDependencies": {

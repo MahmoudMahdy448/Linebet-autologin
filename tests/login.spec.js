@@ -7,8 +7,19 @@ const PHONE_PATTERN = /^01\d{9}$/;
 const loginUrl = 'https://linebet.com/en/user/login';
 const rechargeUrl = 'https://linebet.com/en/office/recharge';
 const accountsFilePath = path.resolve(process.cwd(), 'accounts.csv');
-const failuresLogPath = path.resolve(process.cwd(), 'logs', 'failed-accounts.log');
-const numbersJsonPath = path.resolve(process.cwd(), 'extracted_numbers.json');
+const failuresLogPath = process.env.FAILED_LOG
+  ? path.resolve(process.cwd(), process.env.FAILED_LOG)
+  : path.resolve(process.cwd(), 'logs', 'failed-accounts.log');
+// Demo runs point these at isolated demo files; production keeps the defaults.
+const screenshotsDir = process.env.SCREENSHOTS_DIR || 'screenshots';
+const numbersJsonPath = process.env.NUMBERS_JSON_FILE
+  ? path.resolve(process.cwd(), process.env.NUMBERS_JSON_FILE)
+  : path.resolve(process.cwd(), 'extracted_numbers.json');
+// Only written when a caller asks for it (the demo panel does); production
+// keeps its current behaviour.
+const runSummaryPath = process.env.RUN_SUMMARY_FILE
+  ? path.resolve(process.cwd(), process.env.RUN_SUMMARY_FILE)
+  : null;
 
 function parseCsvLine(line) {
   const values = [];
@@ -108,10 +119,10 @@ function uniquePhoneFilename(phone) {
   phoneCounts.set(phone, count + 1);
 
   if (count === 0) {
-    return `screenshots/${phone}.jpg`;
+    return path.join(screenshotsDir, `${phone}.jpg`);
   }
 
-  return `screenshots/${phone} (${count + 1}).jpg`;
+  return path.join(screenshotsDir, `${phone} (${count + 1}).jpg`);
 }
 
 async function waitForLoginForm(page) {
@@ -183,7 +194,7 @@ async function runAccountFlow(page, account, index, total) {
   }
 
   if (!loginInput || !passwordInput) {
-    await page.screenshot({ path: `screenshots/debug-login-${index + 1}.jpg`, type: 'jpeg', quality: 80 });
+    await page.screenshot({ path: path.join(screenshotsDir, `debug-login-${index + 1}.jpg`), type: 'jpeg', quality: 80 });
     throw new Error('Could not find login or password input fields.');
   }
 
@@ -241,74 +252,96 @@ async function runAccountFlow(page, account, index, total) {
 
   console.log(`[${index + 1}/${total}] Login successful, navigating to deposit page`);
 
-  await page.goto(rechargeUrl, { waitUntil: 'domcontentloaded' });
-
-  await page.waitForTimeout(5000);
-
   const vodafoneSelector = '[id^="vodafone_cash_linebet_"]';
-  let paymentFrame = null;
-  let vodafoneFound = false;
-  const searchDeadline = Date.now() + 30000;
+  const paymentModal = '#payment_modal_container';
+  const amountField = '#amount';
+  let scope = null;
 
-  while (Date.now() < searchDeadline) {
-    const mainCount = await page.locator(vodafoneSelector).count();
-    if (mainCount > 0) {
-      vodafoneFound = true;
-      break;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) {
+      console.log(`  Payment option not ready, reloading recharge page (attempt ${attempt + 1})`);
     }
 
-    for (const frame of page.frames()) {
-      try {
-        const count = await frame.locator(vodafoneSelector).count();
-        if (count > 0) {
-          paymentFrame = frame;
-          vodafoneFound = true;
-          break;
+    await page.goto(rechargeUrl, { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(5000);
+
+    let vodafoneFound = false;
+    let paymentFrame = null;
+
+    const searchDeadline = Date.now() + 30000;
+
+    while (Date.now() < searchDeadline) {
+      const mainCount = await page.locator(vodafoneSelector).count();
+      if (mainCount > 0) {
+        vodafoneFound = true;
+        break;
+      }
+
+      for (const frame of page.frames()) {
+        try {
+          const count = await frame.locator(vodafoneSelector).count();
+          if (count > 0) {
+            paymentFrame = frame;
+            vodafoneFound = true;
+            break;
+          }
+        } catch {
+          // frame may be detached or cross-origin - skip
         }
-      } catch {
-        // frame may be detached or cross-origin - skip
+      }
+      if (vodafoneFound) break;
+      await page.waitForTimeout(1000);
+    }
+
+    if (!vodafoneFound) {
+      const allIds = await page.evaluate(() => {
+        return [...document.querySelectorAll('[id]')].map(el => el.id).filter(id => id.toLowerCase().includes('voda') || id.toLowerCase().includes('payment') || id.toLowerCase().includes('modal'));
+      });
+      console.log('  Found IDs on page:', allIds);
+      for (const frame of page.frames()) {
+        try {
+          const frameIds = await frame.evaluate(() => {
+            return [...document.querySelectorAll('[id]')].map(el => el.id).filter(id => id.toLowerCase().includes('voda') || id.toLowerCase().includes('payment') || id.toLowerCase().includes('modal'));
+          });
+          if (frameIds.length) console.log('  Found IDs in frame:', frameIds);
+        } catch {}
+      }
+      mkdirSync(screenshotsDir, { recursive: true });
+      await page.screenshot({ path: path.join(screenshotsDir, `debug-deposit-${index + 1}.jpg`), type: 'jpeg', quality: 80, fullPage: true });
+      throw new Error('Vodafone option (#vodafone_cash_linebet_3) not found within 30 seconds.');
+    }
+
+    scope = paymentFrame || page;
+    const vodafoneOption = scope.locator(vodafoneSelector).first();
+    const modalLocator = scope.locator(paymentModal);
+
+    await vodafoneOption.click().catch(() => {});
+
+    await expect(modalLocator).toBeVisible({ timeout: 15000 });
+
+    const closePopup = scope.locator('a.message-close');
+    if (await closePopup.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await closePopup.click();
+      await page.waitForTimeout(500);
+    }
+
+    try {
+      await expect(scope.locator(amountField)).toBeVisible({ timeout: 15000 });
+      break;
+    } catch {
+      mkdirSync(screenshotsDir, { recursive: true });
+      await page.screenshot({ path: path.join(screenshotsDir, `debug-modal-${index + 1}-${attempt + 1}.jpg`), type: 'jpeg', quality: 80, fullPage: true });
+      const modalHtml = await modalLocator.evaluate((el) => el.outerHTML).catch(() => '');
+      console.log(`  #amount not found (attempt ${attempt + 1}). Modal HTML snippet:`, modalHtml.slice(0, 2000));
+      if (attempt === 2) {
+        throw new Error('Payment modal opened but amount field (#amount) never appeared within 3 attempts.');
       }
     }
-    if (vodafoneFound) break;
-    await page.waitForTimeout(1000);
   }
 
-  if (!vodafoneFound) {
-    const allIds = await page.evaluate(() => {
-      return [...document.querySelectorAll('[id]')].map(el => el.id).filter(id => id.toLowerCase().includes('voda') || id.toLowerCase().includes('payment') || id.toLowerCase().includes('modal'));
-    });
-    console.log('  Found IDs on page:', allIds);
-    for (const frame of page.frames()) {
-      try {
-        const frameIds = await frame.evaluate(() => {
-          return [...document.querySelectorAll('[id]')].map(el => el.id).filter(id => id.toLowerCase().includes('voda') || id.toLowerCase().includes('payment') || id.toLowerCase().includes('modal'));
-        });
-        if (frameIds.length) console.log('  Found IDs in frame:', frameIds);
-      } catch {}
-    }
-    mkdirSync('screenshots', { recursive: true });
-    await page.screenshot({ path: `screenshots/debug-deposit-${index + 1}.jpg`, type: 'jpeg', quality: 80, fullPage: true });
-    throw new Error('Vodafone option (#vodafone_cash_linebet_3) not found within 30 seconds.');
-  }
-
-  const scope = paymentFrame || page;
-  const vodafoneOption = scope.locator(vodafoneSelector).first();
-  const paymentModal = scope.locator('#payment_modal_container');
-
-  await vodafoneOption.click();
-
-  await expect(paymentModal).toBeVisible({ timeout: 15000 });
-
-  const closePopup = scope.locator('a.message-close');
-  if (await closePopup.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await closePopup.click();
-    await page.waitForTimeout(500);
-  }
-
-  await expect(scope.locator('#amount')).toBeVisible({ timeout: 15000 });
   await page.waitForTimeout(1000);
 
-  const modalBox = await paymentModal.boundingBox();
+  const modalBox = await scope.locator(paymentModal).boundingBox();
   const viewport = await page.evaluate(() => ({
     width: window.innerWidth,
     height: window.innerHeight
@@ -319,18 +352,37 @@ async function runAccountFlow(page, account, index, total) {
   }
 
   const copyBtn = scope.locator('span.copy_content_btn.modal-message-btn[title="Copy"]');
-  const btnText = await copyBtn.textContent().catch(() => '');
-  const btnMatch = btnText.match(/01\d{9}/);
-  let extractedNumber = btnMatch ? btnMatch[0] : null;
 
-  if (!extractedNumber) {
-    const modalText = await copyBtn.locator('..').textContent().catch(() => '');
-    const phoneMatch = modalText.match(/01\d{9}/);
-    extractedNumber = phoneMatch ? phoneMatch[0] : null;
+  await expect(copyBtn.first()).toBeVisible({ timeout: 15_000 });
+  await copyBtn.first().click();
+  await page.waitForTimeout(500);
+
+  let extractedNumber = await page.evaluate(() => navigator.clipboard.readText()).catch(() => '');
+
+  if (!PHONE_PATTERN.test(extractedNumber)) {
+    extractedNumber = await copyBtn.first().getAttribute('data-clipboard-text').catch(() => '') || '';
   }
 
-  if (extractedNumber && !PHONE_PATTERN.test(extractedNumber)) {
-    extractedNumber = null;
+  if (!PHONE_PATTERN.test(extractedNumber)) {
+    const btnText = await copyBtn.first().textContent().catch(() => '');
+    const btnMatch = (btnText || '').match(/01\d{9}/);
+    extractedNumber = btnMatch ? btnMatch[0] : '';
+  }
+
+  if (!PHONE_PATTERN.test(extractedNumber)) {
+    const parentText = await copyBtn.first().locator('..').textContent().catch(() => '');
+    const parentMatch = (parentText || '').match(/01\d{9}/);
+    extractedNumber = parentMatch ? parentMatch[0] : '';
+  }
+
+  if (!PHONE_PATTERN.test(extractedNumber)) {
+    extractedNumber = '';
+  }
+
+  if (PHONE_PATTERN.test(extractedNumber)) {
+    const amountInput = scope.locator('#amount');
+    await amountInput.fill(extractedNumber);
+    await page.waitForTimeout(500);
   }
 
   if (extractedNumber) {
@@ -344,7 +396,7 @@ async function runAccountFlow(page, account, index, total) {
 
   const filename = extractedNumber
     ? uniquePhoneFilename(extractedNumber)
-    : `screenshots/vodafone-deposit-${new Date().toISOString().replace(/[:.]/g, '-')}.jpg`;
+    : path.join(screenshotsDir, `vodafone-deposit-${new Date().toISOString().replace(/[:.]/g, '-')}.jpg`);
 
   mkdirSync(path.dirname(filename), { recursive: true });
 
@@ -375,35 +427,72 @@ test('sign in to Linebet', async ({ browser }) => {
 
   const startIndex = parseInt(process.env.START_INDEX, 10) || 1;
   const startOffset = startIndex - 1;
+  const endIndex = parseInt(process.env.END_INDEX, 10) || accounts.length;
+  const endOffset = Math.min(endIndex, accounts.length);
+  const accountDelayMs = (Number.isFinite(parseInt(process.env.ACCOUNT_DELAY_SECONDS, 10)) ? parseInt(process.env.ACCOUNT_DELAY_SECONDS, 10) : 120) * 1000;
 
   uniqueNumbers.clear();
 
   if (startOffset > 0 && startOffset < accounts.length) {
     console.log(`Starting execution from account #${startIndex} (${accounts[startOffset].username})`);
   }
+  console.log(`Processing accounts #${startIndex} through #${endOffset} (${endOffset - startOffset} total)`);
+  if (accountDelayMs > 0) {
+    console.log(`Waiting ${accountDelayMs / 1000}s between accounts (set ACCOUNT_DELAY_SECONDS to override)`);
+  }
+  const startedAt = new Date().toISOString();
+  let succeeded = 0;
+  let failed = 0;
 
   for (const [index, account] of accounts.entries()) {
-    if (index < startOffset) {
+    if (index < startOffset || index >= endOffset) {
       continue;
     }
 
     const context = await browser.newContext();
+    await context.grantPermissions(['clipboard-read'], { origin: 'https://linebet.com' });
     const page = await context.newPage();
 
     try {
       await runAccountFlow(page, account, index, accounts.length);
+      succeeded += 1;
     } catch (error) {
+      failed += 1;
       console.error(
         `[${index + 1}/${accounts.length}] Failed for ${account.username}: ${error.message}`
       );
       logFailure(account, error);
     } finally {
-      if (index < accounts.length - 1 && !page.isClosed()) {
-        await page.waitForTimeout(5000);
+      if (index < endOffset - 1 && !page.isClosed()) {
+        if (accountDelayMs > 0) {
+          const totalSeconds = Math.ceil(accountDelayMs / 1000);
+          console.log(`  Cooling down ${totalSeconds}s before next account...`);
+          for (let remaining = totalSeconds; remaining > 0; remaining -= 10) {
+            console.log(`    ...${remaining}s left`);
+            await page.waitForTimeout(Math.min(10, remaining) * 1000);
+          }
+        } else {
+          await page.waitForTimeout(accountDelayMs);
+        }
       }
 
       await page.close().catch(() => {});
       await context.close().catch(() => {});
+    }
+  }
+
+  if (runSummaryPath) {
+    try {
+      writeFileSync(runSummaryPath, JSON.stringify({
+        startedAt,
+        endedAt: new Date().toISOString(),
+        totalAccounts: Math.max(0, endOffset - startOffset),
+        succeeded,
+        failed,
+        uniqueNumbers: uniqueNumbers.size
+      }, null, 2), 'utf8');
+    } catch {
+      // monitoring must never fail the batch
     }
   }
 
@@ -412,7 +501,8 @@ test('sign in to Linebet', async ({ browser }) => {
     const data = Array.from(uniqueNumbers).map((num) => ({ Phone: num }));
     const ws = XLSX.utils.json_to_sheet(data);
     XLSX.utils.book_append_sheet(wb, ws, 'Phone Numbers');
-    XLSX.writeFile(wb, 'extracted_numbers.xlsx');
-    console.log(`Extracted ${uniqueNumbers.size} unique phone number(s) to extracted_numbers.xlsx`);
+    const excelPath = process.env.EXCEL_FILE || 'extracted_numbers.xlsx';
+    XLSX.writeFile(wb, excelPath);
+    console.log(`Extracted ${uniqueNumbers.size} unique phone number(s) to ${excelPath}`);
   }
 });
